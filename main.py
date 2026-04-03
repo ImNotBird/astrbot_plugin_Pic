@@ -28,8 +28,7 @@ IMAGE_API_URLS = [
     "https://api.sretna.cn/api/pc.php",
     "https://api.yppp.net/api.php",
     "https://api.yppp.net/pc.php",
-    "https://www.dmoe.cc/random.php
-    
+    "https://www.dmoe.cc/random.php",
     "https://t.alcy.cc/mp"
 ]
 
