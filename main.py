@@ -25,15 +25,20 @@ IMAGE_API_URLS = [
     "https://t.alcy.cc/pc",
     "https://t.alcy.cc/ysmp",
     "https://t.alcy.cc/moemp",
+    "https://api.sretna.cn/api/pc.php",
+    "https://api.yppp.net/api.php",
+    "https://api.yppp.net/pc.php",
+    "https://www.dmoe.cc/random.php
+    
     "https://t.alcy.cc/mp"
 ]
 
 # 合法的图片Content-Type
 ALLOWED_IMAGE_MIMES = {
-    "image/jpeg",
-    "image/png",
-    "image/gif",
-    "image/webp",
+    "image/jpeg"，
+    "image/png"，
+    "image/gif"，
+    "image/webp"，
     "image/bmp"
 }
 
