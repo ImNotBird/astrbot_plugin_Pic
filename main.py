@@ -25,19 +25,17 @@ IMAGE_API_URLS = [
     "https://t.alcy.cc/pc",
     "https://t.alcy.cc/ysmp",
     "https://t.alcy.cc/moemp",
+    "https://t.alcy.cc/mp",
     "https://api.sretna.cn/api/pc.php",
-    "https://api.yppp.net/api.php",
-    "https://api.yppp.net/pc.php",
-    "https://www.dmoe.cc/random.php",
-    "https://t.alcy.cc/mp"
+    "https://www.dmoe.cc/random.php"
 ]
 
-# 合法的图片Content-Type
+# 合法的图片Content-Type (已修复：使用英文逗号)
 ALLOWED_IMAGE_MIMES = {
-    "image/jpeg"，
-    "image/png"，
-    "image/gif"，
-    "image/webp"，
+    "image/jpeg",
+    "image/png",
+    "image/gif",
+    "image/webp",
     "image/bmp"
 }
 
@@ -137,7 +135,6 @@ class ImagePlugin(Star):
         """处理所有消息事件"""
         try:
             text = event.message_str.lower()
-            # 修改触发词为“我要看图”
             if "我要看图" in text:
                 await event.send(event.plain_result("好的，正在为你准备图片..."))
                 return await self.handle_image_request(event)
