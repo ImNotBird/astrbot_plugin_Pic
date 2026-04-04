@@ -125,11 +125,13 @@ class ImageManager:
 
 image_manager = ImageManager()
 
-@register("astrbot_plugin_Pic", "ImNotBird", "我要看图", "1.6", "https://github.com/ImNotBird/astrbot_plugin_Pic")
+@register("astrbot_plugin_Pic", "ImNotBird", "我要看图", "1.6.1", "https://github.com/ImNotBird/astrbot_plugin_Pic")
 class ImagePlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
         self.image_manager = image_manager
+        # 配置重试参数
+        self.max_retries = 2  # 失败后重试2次，总共3次尝试
 
     @event_message_type(EventMessageType.ALL)
     async def on_message(self, event: AstrMessageEvent) -> MessageEventResult:
@@ -144,16 +146,35 @@ class ImagePlugin(Star):
             return event.plain_result(f"插件异常: {str(e)}")
 
     async def handle_image_request(self, event: AstrMessageEvent) -> MessageEventResult:
-        """异步处理图片请求全流程"""
+        """异步处理图片请求全流程（带自动切换图源重试）"""
         try:
-            # 随机选择图源
-            selected_api_url = random.choice(IMAGE_API_URLS)
-            logger.info(f"Selected image API: {selected_api_url}")
+            failed_urls = set()
+            filename = None
+            
+            # 循环尝试获取图片，最多max_retries+1次
+            for attempt in range(self.max_retries + 1):
+                # 从可用图源中排除已经失败的
+                available_urls = [url for url in IMAGE_API_URLS if url not in failed_urls]
+                if not available_urls:
+                    logger.error("All image APIs have failed")
+                    break
+                
+                # 随机选择一个可用图源
+                selected_api_url = random.choice(available_urls)
+                logger.info(f"Attempt {attempt+1}/{self.max_retries+1}: Selected image API: {selected_api_url}")
 
-            # 下载图片
-            filename = await self.image_manager.generate_and_save_image(selected_api_url)
+                # 尝试下载图片
+                filename = await self.image_manager.generate_and_save_image(selected_api_url)
+                if filename:
+                    break  # 下载成功，退出重试循环
+                
+                # 下载失败，记录并继续重试
+                failed_urls.add(selected_api_url)
+                logger.warning(f"Attempt {attempt+1} failed with API: {selected_api_url}")
+
+            # 所有尝试都失败
             if not filename:
-                return event.plain_result("图片获取失败了，请稍后再试")
+                return event.plain_result(f"所有图源都获取失败了（已重试{self.max_retries}次），请稍后再试")
 
             # 构建图片消息
             image_path = os.path.join(self.image_manager.imgs_folder, filename)
