@@ -2,6 +2,6 @@ name: astrbot_plugin_Pic
 display_name: 我要看图
 desc: 一款基于栗次元等 API的随机看图插件。 改自https://github.com/ttq7/astrbot_plugin_Lolicon
 help: 输入 /keyword 查看关键词回复帮助。
-version: v1.6.1
+version: v1.6.2
 author: ImNotBird
 repo: https://github.com/ImNotBird/astrbot_plugin_Pic
