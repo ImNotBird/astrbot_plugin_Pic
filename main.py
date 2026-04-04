@@ -27,6 +27,7 @@ IMAGE_API_URLS = [
     "https://t.alcy.cc/moemp",
     "https://t.alcy.cc/mp",
     "https://api.sretna.cn/api/pc.php",
+    "https://img.chuyel.top/api",
     "https://www.dmoe.cc/random.php"
 ]
 
