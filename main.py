@@ -30,10 +30,146 @@ IMAGE_API_URLS = [
     "https://www.dmoe.cc/random.php"
 ]
 
+# 合法的图片Content-Type
 ALLOWED_IMAGE_MIMES = {
     "image/jpeg", "image/png", "image/gif", "image/webp", "image/bmp"
 }
 
+# 单图最大大小（10MB）
+MAX_IMAGE_SIZE = 10 * 1024 * 1024
+
+class ImageManager:
+    """图片管理类"""
+    def __init__(self, data_dir: str):
+        self.imgs_folder = os.path.join(data_dir, "imgs")
+        self.supported_extensions = {'.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp'}
+        self._init_folder()
+
+    def _init_folder(self):
+        """初始化图片文件夹"""
+        if not os.path.exists(self.imgs_folder):
+            os.makedirs(self.imgs_folder)
+            logger.info(f"Created images folder: {self.imgs_folder}")
+
+    async def get_image_list(self):
+        """获取有效图片列表"""
+        try:
+            files = await asyncio.to_thread(os.listdir, self.imgs_folder)
+            return [f for f in files if os.path.splitext(f)[1].lower() in self.supported_extensions]
+        except Exception as e:
+            logger.error(f"Error getting image list: {str(e)}")
+            return []
+
+    async def delete_image(self, filename: str):
+        """安全删除图片文件"""
+        file_path = os.path.join(self.imgs_folder, filename)
+        try:
+            if os.path.exists(file_path):
+                await asyncio.to_thread(os.remove, file_path)
+                logger.info(f"Deleted image: {filename}")
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"Error deleting image {filename}: {str(e)}")
+            return False
+
+    async def generate_and_save_image(self, url) -> Optional[str]:
+        """下载并保存图片"""
+        try:
+            timeout = aiohttp.ClientTimeout(total=20, connect=10)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(url, allow_redirects=True, max_redirects=5) as response:
+                    response.raise_for_status()
+
+                    content_type = response.headers.get("Content-Type", "").lower().split(';')[0].strip()
+                    if content_type not in ALLOWED_IMAGE_MIMES:
+                        return None
+
+                    ext = mimetypes.guess_extension(content_type) or ".jpg"
+                    filename = f"{uuid.uuid4().hex}{ext}"
+                    file_path = os.path.join(self.imgs_folder, filename)
+
+                    content = b""
+                    async for chunk in response.content.iter_chunked(8192):
+                        content += chunk
+                        if len(content) > MAX_IMAGE_SIZE:
+                            logger.error(f"Image from {url} too large.")
+                            return None
+
+                    async with file_lock:
+                        async with aiofiles.open(file_path, 'wb') as f:
+                            await f.write(content)
+                    
+                    return filename
+        except Exception as e:
+            logger.error(f"Error saving image from {url}: {str(e)}")
+            return None
+
+@register("astrbot_plugin_Pic", "ImNotBird", "我要看图插件", "1.6.3")
+class ImagePlugin(Star):
+    def __init__(self, context: Context):
+        super().__init__(context)
+        self.data_dir = StarTools.get_data_dir()
+        self.image_manager = ImageManager(self.data_dir)
+        self.max_retries = 2
+
+    @filter.message_type(EventMessageType.ALL)
+    async def on_message(self, event: AstrMessageEvent) -> MessageEventResult:
+        """处理所有消息事件"""
+        text = event.message_str.lower()
+        if "我要看图" in text:
+            # 发送提示语
+            await event.send(MessageEventResult().message([Plain("好的，正在为你准备图片...")]))
+            # 调用图片处理逻辑
+            return await self.handle_image_request(event)
+        
+        return event.ignore()
+
+    async def handle_image_request(self, event: AstrMessageEvent) -> MessageEventResult:
+        """异步处理图片请求"""
+        try:
+            failed_urls = set()
+            filename = None
+            
+            for attempt in range(self.max_retries + 1):
+                available_urls = [url for url in IMAGE_API_URLS if url not in failed_urls]
+                if not available_urls:
+                    break
+                
+                selected_api_url = random.choice(available_urls)
+                filename = await self.image_manager.generate_and_save_image(selected_api_url)
+                
+                if filename:
+                    break
+                failed_urls.add(selected_api_url)
+
+            if not filename:
+                return MessageEventResult().message([Plain(f"所有图源都尝试失败（共{self.max_retries+1}次）")])
+
+            # 构建绝对路径发送
+            image_path = os.path.abspath(os.path.join(self.image_manager.imgs_folder, filename))
+            result = MessageEventResult().message([Image.from_file(image_path)])
+            
+            try:
+                await event.send(result)
+                # 延迟删除，确保发送引擎读取完毕
+                await asyncio.sleep(2)
+                await self.image_manager.delete_image(filename)
+                return event.ignore() 
+            except Exception as e:
+                logger.warning(f"Send image failed: {str(e)}")
+                await self.image_manager.delete_image(filename)
+                return MessageEventResult().message([Plain("网络波动，图片发送失败")])
+
+        except Exception as e:
+            logger.error(f"Request handling failed: {str(e)}")
+            return MessageEventResult().message([Plain(f"发生错误: {str(e)}")])
+
+    async def terminate(self):
+        """插件卸载时清理"""
+        image_files = await self.image_manager.get_image_list()
+        for f in image_files:
+            await self.image_manager.delete_image(f)
 MAX_IMAGE_SIZE = 10 * 1024 * 1024
 
 class ImageManager:
