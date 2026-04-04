@@ -27,7 +27,7 @@ aiofiles requests
 部分图片可能因网络问题加载失败  
 🛠️ 开发维护  
 项目地址：[GitHub 仓库](https://github.com/ImNotBird/astrbot_plugin_Pic)  
-版本号：1.6.2  
+版本号：1.6.3  
 作者：ImNotBird  
 🎉 贡献指南  
 欢迎提交 Pull Request 改进功能，建议提交前先创建 Issue 讨论新特性。  
