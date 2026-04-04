@@ -57,28 +57,26 @@ class ImageManager:
 
     async def get_image_list(self):
         """获取有效图片列表"""
-        async with file_lock:
-            try:
-                files = await asyncio.to_thread(os.listdir, self.imgs_folder)
-                return [f for f in files if os.path.splitext(f)[1].lower() in self.supported_extensions]
-            except Exception as e:
-                logger.error(f"Error getting image list: {str(e)}")
-                return []
+        try:
+            files = await asyncio.to_thread(os.listdir, self.imgs_folder)
+            return [f for f in files if os.path.splitext(f)[1].lower() in self.supported_extensions]
+        except Exception as e:
+            logger.error(f"Error getting image list: {str(e)}")
+            return []
 
     async def delete_image(self, filename: str):
         """安全删除图片文件"""
-        async with file_lock:
-            file_path = os.path.join(self.imgs_folder, filename)
-            try:
-                if os.path.exists(file_path):
-                    await asyncio.to_thread(os.remove, file_path)
-                    logger.info(f"Deleted image: {filename}")
-                    return True
-                logger.warning(f"Attempted to delete non-existent file: {filename}")
-                return False
-            except Exception as e:
-                logger.error(f"Error deleting image {filename}: {str(e)}")
-                return False
+        file_path = os.path.join(self.imgs_folder, filename)
+        try:
+            if os.path.exists(file_path):
+                await asyncio.to_thread(os.remove, file_path)
+                logger.info(f"Deleted image: {filename}")
+                return True
+            logger.warning(f"Attempted to delete non-existent file: {filename}")
+            return False
+        except Exception as e:
+            logger.error(f"Error deleting image {filename}: {str(e)}")
+            return False
 
     async def generate_and_save_image(self, url) -> Optional[str]:
         """
@@ -97,7 +95,9 @@ class ImageManager:
                     # 校验返回内容是否为图片（自动剥离参数部分）
                     content_type = response.headers.get("Content-Type", "").lower().split(';')[0].strip()
                     if content_type not in ALLOWED_IMAGE_MIMES:
-                        logger.error(f"Invalid Content-Type: {content_type}, not a valid image")
+                        # 增加详细错误日志，帮助诊断API返回内容问题
+                        preview_content = await response.text(encoding='utf-8', errors='replace')[:200]
+                        logger.error(f"Invalid Content-Type: {content_type} from {url}, not a valid image. Response preview: {preview_content}")
                         return None
 
                     # 校验文件大小
@@ -120,7 +120,7 @@ class ImageManager:
                     async for chunk in response.content.iter_chunked(8192):
                         content += chunk
                         if len(content) > MAX_IMAGE_SIZE:
-                            logger.error(f"Image exceeded size limit during download")
+                            logger.error(f"Image exceeded size limit during download from {url}")
                             return None
 
                     # 仅文件写入部分加锁，网络请求不再串行化
@@ -192,7 +192,8 @@ class ImagePlugin(Star):
 
             # 所有尝试都失败
             if not filename:
-                return event.plain_result(f"所有图源都获取失败了（已重试{self.max_retries}次），请稍后再试")
+                # 修复重试次数显示bug（原来显示max_retries次，实际尝试了max_retries+1次）
+                return event.plain_result(f"所有图源都获取失败了（已尝试{self.max_retries+1}次），请稍后再试")
 
             # 构建图片消息
             image_path = os.path.join(self.image_manager.imgs_folder, filename)
@@ -223,23 +224,16 @@ class ImagePlugin(Star):
         try:
             image_files = await self.image_manager.get_image_list()
             if image_files:
-                await asyncio.gather(*(self.image_manager.delete_image(f) for f in image_files))
-            logger.info("Plugin terminated, cleaned up %d cached images", len(image_files))
+                # 修复：逐个处理删除异常，确保一个文件删除失败不影响其他文件
+                success_count = 0
+                for f in image_files:
+                    if await self.image_manager.delete_image(f):
+                        success_count += 1
+                logger.info("Plugin terminated, cleaned up %d/%d cached images", success_count, len(image_files))
+            else:
+                logger.info("Plugin terminated, no cached images to clean up")
         except Exception as e:
             logger.error(f"Cache cleanup failed: {str(e)}")
-    "image/png",
-    "image/gif",
-    "image/webp",
-    "image/bmp"
-}
-
-class ImageManager:
-    """图片管理类"""
-    def __init__(self):
-        self.imgs_folder = "imgs"
-        self.supported_extensions = {'.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp'}
-        self._init_folder()
-
     def _init_folder(self):
         """初始化图片文件夹"""
         if not os.path.exists(self.imgs_folder):
