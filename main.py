@@ -125,7 +125,7 @@ class ImageManager:
 
 image_manager = ImageManager()
 
-@register("astrbot_plugin_Pic", "ImNotBird", "我要看图", "1.6.1", "https://github.com/ImNotBird/astrbot_plugin_Pic")
+@register("astrbot_plugin_Pic", "ImNotBird", "我要看图", "1.6.3", "https://github.com/ImNotBird/astrbot_plugin_Pic")
 class ImagePlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
