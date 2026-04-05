@@ -1,18 +1,18 @@
 import os
 import asyncio
-import logging
 import aiofiles
 import aiohttp
 import random
 import uuid
 import mimetypes
 from typing import List, Optional
-from astrbot.api.star import Context, Star, register
-from astrbot.api.event import AstrMessageEvent, MessageEventResult
-from astrbot.api.event.filter import event_message_type, EventMessageType
-from astrbot.api.message_components import *
 
-logger = logging.getLogger(__name__)
+# 核心规范修复：从 astrbot.api 导入 logger
+from astrbot.api import logger
+from astrbot.api.star import Context, Star, register
+# 核心规范修复：从 astrbot.api.event 导入 filter
+from astrbot.api.event import AstrMessageEvent, MessageEventResult, filter
+from astrbot.api.message_components import *
 
 file_lock = asyncio.Lock()
 
@@ -31,7 +31,6 @@ IMAGE_API_URLS = [
     "https://www.dmoe.cc/random.php"
 ]
 
-# 合法的图片Content-Type (已修复：使用英文逗号)
 ALLOWED_IMAGE_MIMES = {
     "image/jpeg",
     "image/png",
@@ -43,169 +42,117 @@ ALLOWED_IMAGE_MIMES = {
 class ImageManager:
     """图片管理类"""
     def __init__(self):
-        self.imgs_folder = "imgs"
+        self.imgs_folder = "data/imgs" # 建议放在 data 目录下
         self.supported_extensions = {'.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp'}
         self._init_folder()
 
     def _init_folder(self):
-        """初始化图片文件夹"""
         if not os.path.exists(self.imgs_folder):
-            os.makedirs(self.imgs_folder)
-            logger.info("Created images folder")
+            os.makedirs(self.imgs_folder, exist_ok=True)
+            logger.info(f"Created images folder at {self.imgs_folder}")
 
     async def get_image_list(self):
-        """获取有效图片列表"""
         async with file_lock:
             try:
                 files = await asyncio.to_thread(os.listdir, self.imgs_folder)
                 return [f for f in files if os.path.splitext(f)[1].lower() in self.supported_extensions]
             except Exception as e:
-                logger.error(f"Error getting image list: {str(e)}")
+                logger.error(f"Error getting image list: {e}")
                 return []
 
     async def delete_image(self, filename: str):
-        """安全删除图片文件"""
         async with file_lock:
             file_path = os.path.join(self.imgs_folder, filename)
             try:
                 if os.path.exists(file_path):
                     await asyncio.to_thread(os.remove, file_path)
-                    logger.info(f"Deleted image: {filename}")
                     return True
-                logger.warning(f"Attempted to delete non-existent file: {filename}")
                 return False
             except Exception as e:
-                logger.error(f"Error deleting image {filename}: {str(e)}")
+                logger.error(f"Error deleting image {filename}: {e}")
                 return False
 
     async def generate_and_save_image(self, url) -> Optional[str]:
-        """
-        下载并保存图片，自动处理重定向、校验图片合法性、匹配正确后缀
-        返回：成功返回文件名，失败返回None
-        """
         async with file_lock:
             try:
-                # 配置会话：强制跟随重定向，设置合理超时
                 timeout = aiohttp.ClientTimeout(total=20, connect=10)
                 async with aiohttp.ClientSession(timeout=timeout) as session:
                     async with session.get(url, allow_redirects=True, max_redirects=5) as response:
-                        # 校验响应状态
                         response.raise_for_status()
-                        logger.info(f"Request {url} completed, status: {response.status}")
 
-                        # 校验返回内容是否为图片
                         content_type = response.headers.get("Content-Type", "").lower()
                         if content_type not in ALLOWED_IMAGE_MIMES:
-                            logger.error(f"Invalid Content-Type: {content_type}, not a valid image")
+                            logger.error(f"Invalid Content-Type: {content_type}")
                             return None
 
-                        # 自动匹配正确的文件后缀
-                        ext = mimetypes.guess_extension(content_type)
-                        if not ext or ext.lower() not in self.supported_extensions:
-                            ext = ".jpg"  # 兜底后缀
-                        
-                        # 生成唯一文件名
+                        ext = mimetypes.guess_extension(content_type) or ".jpg"
                         filename = f"{uuid.uuid4().hex}{ext}"
                         file_path = os.path.join(self.imgs_folder, filename)
 
-                        # 异步写入文件
                         content = await response.read()
                         async with aiofiles.open(file_path, 'wb') as f:
                             await f.write(content)
                         
-                        logger.info(f"Successfully saved image: {filename}, size: {len(content)} bytes")
                         return filename
-
-            except aiohttp.ClientError as e:
-                logger.error(f"HTTP Request Failed for {url}: {str(e)}")
-                return None
             except Exception as e:
-                logger.error(f"Unexpected error saving image from {url}: {str(e)}")
+                logger.error(f"Save image failed: {e}")
                 return None
 
-image_manager = ImageManager()
-
-@register("astrbot_plugin_Pic", "ImNotBird", "我要看图", "1.6.3", "https://github.com/ImNotBird/astrbot_plugin_Pic")
+@register("astrbot_plugin_Pic", "ImNotBird", "我要看图插件", "1.6.4")
 class ImagePlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
-        self.image_manager = image_manager
-        # 配置重试参数
-        self.max_retries = 2  # 失败后重试2次，总共3次尝试
+        self.image_manager = ImageManager()
+        self.max_retries = 2
 
-    @event_message_type(EventMessageType.ALL)
-    async def on_message(self, event: AstrMessageEvent) -> MessageEventResult:
+    # 核心规范修复：使用 @filter.event_message_type 且引用 filter.EventMessageType
+    @filter.event_message_type(filter.EventMessageType.ALL)
+    async def on_message(self, event: AstrMessageEvent):
         """处理所有消息事件"""
-        try:
-            text = event.message_str.lower()
-            if "我要看图" in text:
-                await event.send(event.plain_result("好的，正在为你准备图片..."))
-                return await self.handle_image_request(event)
-        except Exception as e:
-            logger.error(f"Message handler error: {str(e)}")
-            return event.plain_result(f"插件异常: {str(e)}")
+        text = event.message_str.strip()
+        if "我要看图" == text:
+            yield event.plain_result("好的，正在为你准备图片...")
+            yield await self.handle_image_request(event)
 
     async def handle_image_request(self, event: AstrMessageEvent) -> MessageEventResult:
-        """异步处理图片请求全流程（带自动切换图源重试）"""
+        """图片请求逻辑"""
+        failed_urls = set()
+        filename = None
+        
+        for attempt in range(self.max_retries + 1):
+            available_urls = [url for url in IMAGE_API_URLS if url not in failed_urls]
+            if not available_urls: break
+            
+            selected_api_url = random.choice(available_urls)
+            filename = await self.image_manager.generate_and_save_image(selected_api_url)
+            
+            if filename: break
+            failed_urls.add(selected_api_url)
+
+        if not filename:
+            return event.plain_result("所有图源都失效了，请稍后再试。")
+
+        image_path = os.path.abspath(os.path.join(self.image_manager.imgs_folder, filename))
+        
         try:
-            failed_urls = set()
-            filename = None
+            # 构建并发送图片消息
+            chain = Image.fromFileSystem(image_path)
+            await event.send(event.make_result().message(chain))
             
-            # 循环尝试获取图片，最多max_retries+1次
-            for attempt in range(self.max_retries + 1):
-                # 从可用图源中排除已经失败的
-                available_urls = [url for url in IMAGE_API_URLS if url not in failed_urls]
-                if not available_urls:
-                    logger.error("All image APIs have failed")
-                    break
-                
-                # 随机选择一个可用图源
-                selected_api_url = random.choice(available_urls)
-                logger.info(f"Attempt {attempt+1}/{self.max_retries+1}: Selected image API: {selected_api_url}")
-
-                # 尝试下载图片
-                filename = await self.image_manager.generate_and_save_image(selected_api_url)
-                if filename:
-                    break  # 下载成功，退出重试循环
-                
-                # 下载失败，记录并继续重试
-                failed_urls.add(selected_api_url)
-                logger.warning(f"Attempt {attempt+1} failed with API: {selected_api_url}")
-
-            # 所有尝试都失败
-            if not filename:
-                return event.plain_result(f"所有图源都获取失败了（已重试{self.max_retries}次），请稍后再试")
-
-            # 构建图片消息
-            image_path = os.path.join(self.image_manager.imgs_folder, filename)
-            message_chain = event.make_result().file_image(image_path)
+            # 延迟清理缓存
+            await asyncio.sleep(2)
+            await self.image_manager.delete_image(filename)
+            return event.plain_result("发送完成")
             
-            # 发送图片
-            try:
-                await event.send(message_chain)
-                logger.info(f"Image sent successfully: {filename}")
-                
-                # 延迟删除，避免发送过程中文件被删除
-                await asyncio.sleep(1)
-                delete_success = await self.image_manager.delete_image(filename)
-                return event.plain_result("图片已送达") if delete_success \
-                    else event.plain_result("图片已发送，但缓存清理遇到了小问题")
-
-            except Exception as e:
-                logger.warning(f"Send image failed for {filename}: {str(e)}")
-                await self.image_manager.delete_image(filename)  
-                return event.plain_result("网络波动，图片发送失败")
-
         except Exception as e:
-            logger.error(f"Request handling failed: {str(e)}")
-            return event.plain_result("处理请求时发生错误，请联系管理员")
+            logger.error(f"Send failed: {e}")
+            await self.image_manager.delete_image(filename)
+            return event.plain_result("图片发送失败，请检查网络。")
 
     async def terminate(self):
-        """插件停止时清理所有缓存图片"""
-        try:
-            image_files = await self.image_manager.get_image_list()
-            if image_files:
-                await asyncio.gather(*(self.image_manager.delete_image(f) for f in image_files))
-            logger.info("Plugin terminated, cleaned up %d cached images", len(image_files))
-        except Exception as e:
-            logger.error(f"Cache cleanup failed: {str(e)}")
+        """清理所有缓存"""
+        image_files = await self.image_manager.get_image_list()
+        if image_files:
+            tasks = [self.image_manager.delete_image(f) for f in image_files]
+            await asyncio.gather(*tasks)
+        logger.info("Plugin cleanup finished.")
