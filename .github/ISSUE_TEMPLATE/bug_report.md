@@ -2,7 +2,7 @@
 name: Bug report
 about: Create a report to help us improve
 title: "[Bug]"
-labels: bug
+labels: bug, enhancement
 assignees: ImNotBird
 
 ---
@@ -26,9 +26,8 @@ If applicable, add screenshots to help explain your problem.
 **Environment Information / 运行环境**
 
    安装Astrbot的环境与版本：
- - Plugin version / 插件版本:
  - [e.g. Debain 12, Astrbot 4.26.8]
- - Version /版本号: 
+   Plugin version / 插件版本:
  - [e.g. v1.6.3]
 
 **Log / 日志信息**
