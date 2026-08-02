@@ -13,10 +13,9 @@ from astrbot.api.event.filter import event_message_type, EventMessageType
 from astrbot.api.message_components import *
 
 logger = logging.getLogger(__name__)
-
 file_lock = asyncio.Lock()
 
-# 随机图源列表
+# 图源地址池
 IMAGE_API_URLS = [
     "https://t.alcy.cc/ysz",
     "https://t.alcy.cc/moez",
@@ -31,9 +30,73 @@ IMAGE_API_URLS = [
     "https://www.dmoe.cc/random.php"
 ]
 
-# 合法的图片Content-Type (已修复：使用英文逗号)
+# 允许的图片MIME类型
 ALLOWED_IMAGE_MIMES = {
     "image/jpeg",
+    "image/png",
+    "image/gif",
+    "image/webp"
+}
+
+@register("pic_plugin", "ABird", "随机看图插件，严格匹配指令「我要看图」", "1.0.0")
+class PicPlugin(Star):
+    def __init__(self, context: Context):
+        super().__init__(context)
+        self.cache_dir = "./pic_cache"
+        os.makedirs(self.cache_dir, exist_ok=True)
+
+    async def download_image(self, session: aiohttp.ClientSession, url: str) -> Optional[str]:
+        """下载图片到本地缓存"""
+        try:
+            resp = await session.get(url, timeout=aiohttp.ClientTimeout(total=10))
+            if resp.status != 200:
+                return None
+
+            mime_type = resp.headers.get("Content-Type", "")
+            if mime_type.split(";")[0] not in ALLOWED_IMAGE_MIMES:
+                return None
+
+            ext = mimetypes.guess_extension(mime_type) or ".jpg"
+            save_path = os.path.join(self.cache_dir, f"{uuid.uuid4()}{ext}")
+
+            async with file_lock:
+                async with aiofiles.open(save_path, "wb") as f:
+                    await f.write(await resp.read())
+            return save_path
+        except Exception as e:
+            logger.warning(f"图片下载失败: {e}")
+            return None
+
+    async def clean_cache(self, path: str):
+        """异步删除缓存文件"""
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+        except Exception as e:
+            logger.debug(f"缓存清理异常: {e}")
+
+    @event_message_type(EventMessageType.GROUP_MESSAGE, EventMessageType.PRIVATE_MESSAGE)
+    async def on_message(self, event: AstrMessageEvent) -> Optional[MessageEventResult]:
+        # 严格全匹配指令，必须完全等于「我要看图」才触发
+        msg_text = event.get_plaintext().strip()
+        if msg_text != "我要看图":
+            return None
+
+        yield event.plain_result("好的，正在为你准备图片...")
+
+        selected_api = random.choice(IMAGE_API_URLS)
+        async with aiohttp.ClientSession() as session:
+            img_path = await self.download_image(session, selected_api)
+
+        if not img_path:
+            yield event.plain_result("获取图片失败，请稍后再试")
+            return
+
+        yield event.image_result(img_path)
+        yield event.plain_result("图片已送达")
+
+        # 发送完毕后清理缓存
+        asyncio.create_task(self.clean_cache(img_path))
     "image/png",
     "image/gif",
     "image/webp",
