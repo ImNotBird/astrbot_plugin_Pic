@@ -97,11 +97,7 @@ class PicPlugin(Star):
 
         # 发送完毕后清理缓存
         asyncio.create_task(self.clean_cache(img_path))
-    "image/png",
-    "image/gif",
-    "image/webp",
-    "image/bmp"
-}
+
 
 class ImageManager:
     """图片管理类"""
