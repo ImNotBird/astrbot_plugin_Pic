@@ -129,7 +129,7 @@ class ImagePlugin(Star):
         """处理所有消息事件"""
         try:
             text = event.message_str.lower()
-            if "我要看图" in text:
+            if text == "我要看图":
                 await event.send(event.plain_result("好的，正在为你准备图片..."))
                 return await self.handle_image_request(event)
         except Exception as e:
