@@ -80,7 +80,7 @@ class PicPlugin(Star):
         # 严格全匹配指令，必须完全等于「我要看图」才触发
         msg_text = event.get_plaintext().strip()
         if msg_text != "我要看图":
-            return None
+            return
 
         yield event.plain_result("好的，正在为你准备图片...")
 
